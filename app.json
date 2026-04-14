@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "video-downloader",
+    "name": "Video Downloader",
     "slug": "video-downloader",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -20,8 +20,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "edgeToEdgeEnabled": true,
-      "package": "com.tonuidavies.videodownloader"
+      "package": "com.socials.videodownloader"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,14 +33,14 @@
       [
         "react-native-google-mobile-ads",
         {
-          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
-          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+          "androidAppId": "ca-app-pub-5117316644857484~5868982969",
+          "iosAppId": "ca-app-pub-5117316644857484~5868982969"
         }
       ]
     ],
     "extra": {
       "eas": {
-        "projectId": "e8c63fe8-3ec7-47b0-8001-ba095ad194cb"
+        "projectId": "8599f736-1c4a-42f2-b3f0-7de47d58ce9a"
       }
     }
   }

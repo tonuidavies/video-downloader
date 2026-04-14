@@ -13,8 +13,7 @@ import {
 	StatusBar,
 	Modal,
 	SafeAreaView,
-	Dimensions,
-	Platform,
+	Dimensions
 } from 'react-native';
 import axios from 'axios';
 import ReactNativeBlobUtil from 'react-native-blob-util';
@@ -35,8 +34,8 @@ const { width, height } = Dimensions.get('window');
 const adUnitId = __DEV__
 	? TestIds.REWARDED
 	: Platform.OS === 'ios'
-		? 'ca-app-pub-7661654193288174/5882976163'
-		: 'ca-app-pub-7661654193288174/5882976163';
+		? 'ca-app-pub-5117316644857484/4813266605'
+		: 'ca-app-pub-5117316644857484/7842966656';
 // 3 Separate Rewarded Instances
 const launchAd = RewardedAd.createForAdRequest(adUnitId, {
 	requestNonPersonalizedAdsOnly: true,
@@ -222,7 +221,7 @@ export default function App() {
 		currentVideoDataRef.current = null;
 
 		try {
-			const apiUrl = 'http://192.168.0.110:8085/api/v1/downloader/extract';
+			const apiUrl = 'https://download.usesabu.com/api/v1/downloader/extract';
 			const response = await axios.post(apiUrl, { url }, { timeout: 25000 });
 
 			setVideoData(response.data);
