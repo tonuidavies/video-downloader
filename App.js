@@ -13,7 +13,9 @@ import {
 	StatusBar,
 	Modal,
 	SafeAreaView,
-	Dimensions
+	Dimensions,
+	Animated,
+	FlatList,
 } from 'react-native';
 import axios from 'axios';
 import ReactNativeBlobUtil from 'react-native-blob-util';
@@ -29,14 +31,17 @@ import {
 } from 'react-native-google-mobile-ads';
 
 const { width, height } = Dimensions.get('window');
+const GALLERY_GAP = 12;
+const GALLERY_COLUMNS = 2;
+const GALLERY_ITEM_WIDTH = (width - 40 - GALLERY_GAP) / GALLERY_COLUMNS;
 
 // Use REWARDED Test ID
 const adUnitId = __DEV__
 	? TestIds.REWARDED
 	: Platform.OS === 'ios'
-		? 'ca-app-pub-5117316644857484/4813266605'
-		: 'ca-app-pub-5117316644857484/7842966656';
-// 3 Separate Rewarded Instances
+	? 'ca-app-pub-5117316644857484/4813266605'
+	: 'ca-app-pub-5117316644857484/7842966656';
+
 const launchAd = RewardedAd.createForAdRequest(adUnitId, {
 	requestNonPersonalizedAdsOnly: true,
 });
@@ -71,7 +76,40 @@ export default function App() {
 	// Refs
 	const currentVideoDataRef = useRef(null);
 	const pendingVideoRef = useRef(null);
-	const scrollViewRef = useRef(null); // Added for Auto-Scroll
+	const scrollViewRef = useRef(null);
+
+	// Animations
+	const pulseAnim = useRef(new Animated.Value(1)).current;
+	const fadeAnim = useRef(new Animated.Value(0)).current;
+
+	useEffect(() => {
+		Animated.timing(fadeAnim, {
+			toValue: 1,
+			duration: 600,
+			useNativeDriver: true,
+		}).start();
+	}, [appReady]);
+
+	useEffect(() => {
+		if (loading) {
+			Animated.loop(
+				Animated.sequence([
+					Animated.timing(pulseAnim, {
+						toValue: 0.95,
+						duration: 500,
+						useNativeDriver: true,
+					}),
+					Animated.timing(pulseAnim, {
+						toValue: 1,
+						duration: 500,
+						useNativeDriver: true,
+					}),
+				])
+			).start();
+		} else {
+			pulseAnim.setValue(1);
+		}
+	}, [loading]);
 
 	const showAlert = (title, message) => {
 		setAlertConfig({ visible: true, title, message });
@@ -80,80 +118,68 @@ export default function App() {
 	useEffect(() => {
 		loadDownloads();
 
-		// --- 1. LAUNCH REWARDED AD LOGIC ---
 		const unsubLaunchLoaded = launchAd.addAdEventListener(
 			RewardedAdEventType.LOADED,
-			() => {
-				// Show immediately on launch when ready
-				launchAd.show();
-			},
+			() => launchAd.show()
 		);
 		const unsubLaunchReward = launchAd.addAdEventListener(
 			RewardedAdEventType.EARNED_REWARD,
-			() => {
-				setAppReady(true);
-			},
+			() => setAppReady(true)
 		);
 		const unsubLaunchError = launchAd.addAdEventListener(
 			AdEventType.ERROR,
-			() => setAppReady(true), // Fallback to let user in if ad fails
+			() => setAppReady(true)
 		);
 		const unsubLaunchClosed = launchAd.addAdEventListener(
 			AdEventType.CLOSED,
-			() => setAppReady(true), // Let user in even if they close early
+			() => setAppReady(true)
 		);
 		launchAd.load();
 
-		// --- 2. DOWNLOAD REWARDED AD LOGIC ---
 		const unsubDownLoaded = downloadAd.addAdEventListener(
 			RewardedAdEventType.LOADED,
-			() => setDownloadAdLoaded(true),
+			() => setDownloadAdLoaded(true)
 		);
 		const unsubDownReward = downloadAd.addAdEventListener(
 			RewardedAdEventType.EARNED_REWARD,
-			() => {
-				// User finished the video, trigger the actual download
-				startFileDownload(currentVideoDataRef.current);
-			},
+			() => startFileDownload(currentVideoDataRef.current)
 		);
 		const unsubDownError = downloadAd.addAdEventListener(
 			AdEventType.ERROR,
-			() => setDownloadAdLoaded(false),
+			() => setDownloadAdLoaded(false)
 		);
 		const unsubDownClosed = downloadAd.addAdEventListener(
 			AdEventType.CLOSED,
 			() => {
 				setDownloadAdLoaded(false);
-				downloadAd.load(); // Reload for next use
-			},
+				downloadAd.load();
+			}
 		);
 		downloadAd.load();
 
-		// --- 3. PLAYER REWARDED AD LOGIC ---
 		const unsubPlayerLoaded = playerAd.addAdEventListener(
 			RewardedAdEventType.LOADED,
-			() => setPlayerAdLoaded(true),
+			() => setPlayerAdLoaded(true)
 		);
 		const unsubPlayerReward = playerAd.addAdEventListener(
 			RewardedAdEventType.EARNED_REWARD,
 			() => {
-				// If there was a video waiting to play, play it now
 				if (pendingVideoRef.current) {
 					setPlayingVideo(pendingVideoRef.current);
 					pendingVideoRef.current = null;
 				}
-			},
+			}
 		);
 		const unsubPlayerError = playerAd.addAdEventListener(
 			AdEventType.ERROR,
-			() => setPlayerAdLoaded(false),
+			() => setPlayerAdLoaded(false)
 		);
 		const unsubPlayerClosed = playerAd.addAdEventListener(
 			AdEventType.CLOSED,
 			() => {
 				setPlayerAdLoaded(false);
-				playerAd.load(); // Reload for next use
-			},
+				playerAd.load();
+			}
 		);
 		playerAd.load();
 
@@ -194,6 +220,7 @@ export default function App() {
 				title: videoItem.title,
 				thumbnail: videoItem.thumbnail,
 				path: playablePath,
+				date: new Date().toLocaleDateString(),
 			};
 			const updated = [newEntry, ...downloadedVideos];
 			setDownloadedVideos(updated);
@@ -211,7 +238,7 @@ export default function App() {
 		) {
 			return showAlert(
 				'Platform Not Supported',
-				'YouTube downloads are not permitted.',
+				'YouTube downloads are not permitted.'
 			);
 		}
 
@@ -228,7 +255,6 @@ export default function App() {
 			currentVideoDataRef.current = response.data;
 			setUrl('');
 
-			// Auto-scroll to preview card after a short delay to allow UI render
 			setTimeout(() => {
 				if (scrollViewRef.current) {
 					scrollViewRef.current.scrollToEnd({ animated: true });
@@ -246,15 +272,13 @@ export default function App() {
 		if (!hasPermission) {
 			return showAlert(
 				'Permission Required',
-				'Please confirm permissions first.',
+				'Please confirm permissions first.'
 			);
 		}
 
 		if (downloadAdLoaded) {
-			// Show Rewarded Ad. 'startFileDownload' is called in EARNED_REWARD listener
 			downloadAd.show();
 		} else {
-			// If ad failed to load, don't punish the user, just download
 			startFileDownload(currentVideoDataRef.current);
 		}
 	};
@@ -277,12 +301,21 @@ export default function App() {
 				notification: true,
 				path: fullPath,
 				description: 'Downloading Video',
+				mediaScannable: true, // Makes it visible in gallery
 			},
+			path: Platform.OS === 'ios' ? fullPath : undefined,
 		})
 			.fetch('GET', targetData.downloadUrl)
 			.then((res) => {
-				showAlert('Success!', 'Video saved to gallery.');
-				saveToGallery(targetData, res.path());
+				const savedPath = res.path();
+				// Scan file so it appears in device gallery
+				if (Platform.OS === 'android') {
+					ReactNativeBlobUtil.fs
+						.scanFile([{ path: savedPath, mime: 'video/mp4' }])
+						.catch(() => {});
+				}
+				showAlert('Success! 🎉', 'Video saved to your gallery.');
+				saveToGallery(targetData, savedPath);
 				setVideoData(null);
 			})
 			.catch((err) => showAlert('Download Failed', err.message));
@@ -291,7 +324,7 @@ export default function App() {
 	const handlePlayPress = (item) => {
 		if (playerAdLoaded) {
 			pendingVideoRef.current = item;
-			playerAd.show(); // 'setPlayingVideo' is called in EARNED_REWARD listener
+			playerAd.show();
 		} else {
 			setPlayingVideo(item);
 		}
@@ -300,9 +333,14 @@ export default function App() {
 	const handleClosePress = () => {
 		setPlayingVideo(null);
 		if (playerAdLoaded) {
-			// Triggers a rewarded ad on close (Note: No reward action needed here, just the ad view)
 			playerAd.show();
 		}
+	};
+
+	const handleDeleteVideo = async (itemId) => {
+		const updated = downloadedVideos.filter((v) => v.id !== itemId);
+		setDownloadedVideos(updated);
+		await AsyncStorage.setItem('@downloaded_videos', JSON.stringify(updated));
 	};
 
 	if (!appReady) {
@@ -312,7 +350,7 @@ export default function App() {
 					barStyle='light-content'
 					backgroundColor='#020617'
 				/>
-				<View style={styles.splashLogoBox}>
+				<Animated.View style={[styles.splashLogoBox, { opacity: fadeAnim }]}>
 					<Image
 						source={require('./assets/icon.png')}
 						style={styles.splashLogoImage}
@@ -320,7 +358,7 @@ export default function App() {
 					/>
 					<Text style={styles.splashLogoText}>SaveIt All</Text>
 					<Text style={styles.splashSubtitle}>Universal Utility Tool</Text>
-				</View>
+				</Animated.View>
 				<ActivityIndicator
 					size='large'
 					color='#38BDF8'
@@ -340,12 +378,13 @@ export default function App() {
 				behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
 				style={{ flex: 1 }}>
 				<ScrollView
-					ref={scrollViewRef} // Attached Ref for Auto-Scroll
+					ref={scrollViewRef}
 					contentContainerStyle={styles.scrollContent}
 					keyboardShouldPersistTaps='handled'
 					showsVerticalScrollIndicator={false}>
 					{activeTab === 'HOME' && (
-						<View style={styles.centeredWrapper}>
+						<Animated.View
+							style={[styles.centeredWrapper, { opacity: fadeAnim }]}>
 							<View style={styles.logoContainer}>
 								<Image
 									source={require('./assets/icon.png')}
@@ -368,20 +407,23 @@ export default function App() {
 										autoCapitalize='none'
 									/>
 								</View>
-								<TouchableOpacity
-									style={[
-										styles.primaryButton,
-										loading && styles.buttonDisabled,
-									]}
-									onPress={handleAnalyze}
-									disabled={loading}
-									activeOpacity={0.85}>
-									{loading ? (
-										<ActivityIndicator color='#fff' />
-									) : (
-										<Text style={styles.buttonText}>Search Video</Text>
-									)}
-								</TouchableOpacity>
+								<Animated.View
+									style={{ width: '100%', transform: [{ scale: pulseAnim }] }}>
+									<TouchableOpacity
+										style={[
+											styles.primaryButton,
+											loading && styles.buttonDisabled,
+										]}
+										onPress={handleAnalyze}
+										disabled={loading}
+										activeOpacity={0.85}>
+										{loading ? (
+											<ActivityIndicator color='#fff' />
+										) : (
+											<Text style={styles.buttonText}>✨ Search Video</Text>
+										)}
+									</TouchableOpacity>
+								</Animated.View>
 								<View style={styles.platformSection}>
 									<Text style={styles.platformTitle}>
 										🌐 Supported Platforms
@@ -416,6 +458,7 @@ export default function App() {
 										source={{ uri: videoData.thumbnail }}
 										style={styles.previewImage}
 									/>
+									<View style={styles.previewGradientOverlay} />
 									<View style={styles.previewContent}>
 										<Text
 											style={styles.previewTitle}
@@ -448,54 +491,73 @@ export default function App() {
 											onPress={handleDownloadPress}
 											activeOpacity={0.8}>
 											<Text style={styles.downloadButtonText}>
-												⬇️ Download Video
+												⬇️ Save to Gallery
 											</Text>
 										</TouchableOpacity>
 									</View>
 								</View>
 							)}
-						</View>
+						</Animated.View>
 					)}
 
 					{activeTab === 'FOLDER' && (
 						<View style={styles.libraryContainer}>
 							<View style={styles.libraryHeader}>
-								<Text style={styles.tabHeaderTitle}>My Library</Text>
-								<Text style={styles.libraryCount}>
-									{downloadedVideos.length} videos
-								</Text>
+								<Text style={styles.tabHeaderTitle}>My Gallery</Text>
+								<View style={styles.countBadge}>
+									<Text style={styles.libraryCount}>
+										{downloadedVideos.length}
+									</Text>
+								</View>
 							</View>
 							{downloadedVideos.length === 0 ? (
 								<View style={styles.emptyState}>
-									<Text style={styles.emptyEmoji}>📭</Text>
+									<View style={styles.emptyIconCircle}>
+										<Text style={styles.emptyEmoji}>🎬</Text>
+									</View>
 									<Text style={styles.emptyTitle}>No videos yet</Text>
 									<Text style={styles.emptyText}>
-										Downloaded videos will appear here
+										Your saved videos will appear here in a beautiful grid
 									</Text>
 								</View>
 							) : (
-								downloadedVideos.map((item) => (
-									<TouchableOpacity
-										key={item.id}
-										style={styles.galleryCard}
-										onPress={() => handlePlayPress(item)}
-										activeOpacity={0.9}>
-										<Image
-											source={{ uri: item.thumbnail }}
-											style={styles.galleryImage}
-										/>
-										<View style={styles.galleryInfo}>
-											<Text
-												style={styles.galleryTitle}
-												numberOfLines={2}>
-												{item.title}
-											</Text>
-											<View style={styles.playBadge}>
-												<Text style={styles.playBadgeText}>▶ Tap to play</Text>
+								<View style={styles.galleryGrid}>
+									{downloadedVideos.map((item) => (
+										<TouchableOpacity
+											key={item.id}
+											style={styles.galleryGridItem}
+											onPress={() => handlePlayPress(item)}
+											onLongPress={() => handleDeleteVideo(item.id)}
+											activeOpacity={0.85}>
+											<Image
+												source={{ uri: item.thumbnail }}
+												style={styles.galleryGridImage}
+											/>
+											<View style={styles.galleryGridOverlay}>
+												<View style={styles.playIconCircle}>
+													<Text style={styles.playIconText}>▶</Text>
+												</View>
 											</View>
-										</View>
-									</TouchableOpacity>
-								))
+											<View style={styles.galleryGridInfo}>
+												<Text
+													style={styles.galleryGridTitle}
+													numberOfLines={2}>
+													{item.title}
+												</Text>
+												{item.date && (
+													<Text style={styles.galleryGridDate}>
+														{item.date}
+													</Text>
+												)}
+											</View>
+										</TouchableOpacity>
+									))}
+								</View>
+							)}
+							{downloadedVideos.length > 0 && (
+								<Text style={styles.galleryHint}>
+									Long press to remove from library
+								</Text>
 							)}
 						</View>
 					)}
@@ -550,7 +612,7 @@ export default function App() {
 								styles.tabIcon,
 								activeTab === 'FOLDER' && styles.activeTabIcon,
 							]}>
-							📁
+							🖼️
 						</Text>
 					</View>
 					<Text
@@ -558,7 +620,7 @@ export default function App() {
 							styles.tabText,
 							activeTab === 'FOLDER' && styles.activeTabText,
 						]}>
-						Library
+						Gallery
 					</Text>
 				</TouchableOpacity>
 			</View>
@@ -592,7 +654,7 @@ export default function App() {
 						style={styles.closeVideoButton}
 						onPress={handleClosePress}
 						activeOpacity={0.8}>
-						<Text style={styles.closeVideoText}>✕ Close Player</Text>
+						<Text style={styles.closeVideoText}>✕ Close</Text>
 					</TouchableOpacity>
 					{playingVideo && (
 						<Video
@@ -649,9 +711,9 @@ const styles = StyleSheet.create({
 		backgroundColor: '#0F172A',
 		borderRadius: 32,
 		padding: 28,
-		shadowColor: '#000',
-		shadowOffset: { width: 0, height: 10 },
-		shadowOpacity: 0.3,
+		shadowColor: '#38BDF8',
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.08,
 		shadowRadius: 20,
 		elevation: 8,
 		alignItems: 'center',
@@ -676,7 +738,7 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		color: '#FFFFFF',
 		fontWeight: '500',
-		borderWidth: 1,
+		borderWidth: 1.5,
 		borderColor: '#334155',
 	},
 	primaryButton: {
@@ -686,10 +748,10 @@ const styles = StyleSheet.create({
 		width: '100%',
 		alignItems: 'center',
 		shadowColor: '#38BDF8',
-		shadowOffset: { width: 0, height: 4 },
-		shadowOpacity: 0.4,
-		shadowRadius: 15,
-		elevation: 6,
+		shadowOffset: { width: 0, height: 6 },
+		shadowOpacity: 0.5,
+		shadowRadius: 18,
+		elevation: 8,
 		marginBottom: 24,
 	},
 	buttonDisabled: { backgroundColor: '#334155', shadowOpacity: 0 },
@@ -733,9 +795,9 @@ const styles = StyleSheet.create({
 		backgroundColor: '#0F172A',
 		borderRadius: 28,
 		overflow: 'hidden',
-		shadowColor: '#000',
-		shadowOffset: { width: 0, height: 6 },
-		shadowOpacity: 0.3,
+		shadowColor: '#10B981',
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.15,
 		shadowRadius: 20,
 		elevation: 8,
 		marginTop: 24,
@@ -743,6 +805,14 @@ const styles = StyleSheet.create({
 		borderColor: '#1E293B',
 	},
 	previewImage: { width: '100%', height: 210, resizeMode: 'cover' },
+	previewGradientOverlay: {
+		position: 'absolute',
+		top: 160,
+		left: 0,
+		right: 0,
+		height: 50,
+		backgroundColor: 'transparent',
+	},
 	previewContent: { padding: 20 },
 	previewTitle: {
 		fontSize: 16,
@@ -787,16 +857,19 @@ const styles = StyleSheet.create({
 		paddingVertical: 16,
 		alignItems: 'center',
 		shadowColor: '#10B981',
-		shadowOpacity: 0.3,
-		shadowRadius: 10,
+		shadowOpacity: 0.4,
+		shadowOffset: { width: 0, height: 4 },
+		shadowRadius: 12,
+		elevation: 6,
 	},
 	downloadButtonDisabled: { backgroundColor: '#334155', shadowOpacity: 0 },
 	downloadButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+	// --- GALLERY LIBRARY STYLES ---
 	libraryContainer: { flex: 1, paddingBottom: 20 },
 	libraryHeader: {
 		flexDirection: 'row',
 		justifyContent: 'space-between',
-		alignItems: 'baseline',
+		alignItems: 'center',
 		marginBottom: 24,
 		marginTop: 8,
 	},
@@ -806,55 +879,105 @@ const styles = StyleSheet.create({
 		color: '#FFFFFF',
 		letterSpacing: -0.5,
 	},
+	countBadge: {
+		backgroundColor: '#38BDF8',
+		width: 36,
+		height: 36,
+		borderRadius: 18,
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
 	libraryCount: {
 		fontSize: 14,
-		color: '#94A3B8',
-		fontWeight: '600',
-		backgroundColor: '#1E293B',
-		paddingHorizontal: 12,
-		paddingVertical: 4,
-		borderRadius: 20,
+		color: '#020617',
+		fontWeight: '800',
 	},
 	emptyState: { alignItems: 'center', marginTop: 80 },
-	emptyEmoji: { fontSize: 64, marginBottom: 16 },
+	emptyIconCircle: {
+		width: 100,
+		height: 100,
+		borderRadius: 50,
+		backgroundColor: '#0F172A',
+		justifyContent: 'center',
+		alignItems: 'center',
+		marginBottom: 20,
+		borderWidth: 2,
+		borderColor: '#1E293B',
+	},
+	emptyEmoji: { fontSize: 44 },
 	emptyTitle: {
 		fontSize: 20,
 		fontWeight: '700',
 		color: '#F8FAFC',
 		marginBottom: 8,
 	},
-	emptyText: { color: '#64748B', fontSize: 15 },
-	galleryCard: {
+	emptyText: {
+		color: '#64748B',
+		fontSize: 15,
+		textAlign: 'center',
+		paddingHorizontal: 40,
+	},
+	galleryGrid: {
 		flexDirection: 'row',
+		flexWrap: 'wrap',
+		justifyContent: 'space-between',
+	},
+	galleryGridItem: {
+		width: GALLERY_ITEM_WIDTH,
 		backgroundColor: '#0F172A',
-		borderRadius: 24,
-		padding: 12,
+		borderRadius: 20,
+		overflow: 'hidden',
 		marginBottom: 16,
 		borderWidth: 1,
 		borderColor: '#1E293B',
 	},
-	galleryImage: {
-		width: 90,
-		height: 90,
-		borderRadius: 18,
+	galleryGridImage: {
+		width: '100%',
+		height: GALLERY_ITEM_WIDTH * 0.75,
 		resizeMode: 'cover',
 	},
-	galleryInfo: { flex: 1, marginLeft: 16, justifyContent: 'center' },
-	galleryTitle: {
-		fontSize: 15,
+	galleryGridOverlay: {
+		position: 'absolute',
+		top: 0,
+		left: 0,
+		right: 0,
+		height: GALLERY_ITEM_WIDTH * 0.75,
+		justifyContent: 'center',
+		alignItems: 'center',
+		backgroundColor: 'rgba(0,0,0,0.25)',
+	},
+	playIconCircle: {
+		width: 44,
+		height: 44,
+		borderRadius: 22,
+		backgroundColor: 'rgba(56, 189, 248, 0.9)',
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+	playIconText: { color: '#FFFFFF', fontSize: 18, marginLeft: 2 },
+	galleryGridInfo: {
+		padding: 10,
+	},
+	galleryGridTitle: {
+		fontSize: 12,
 		fontWeight: '600',
 		color: '#F8FAFC',
-		marginBottom: 10,
-		lineHeight: 20,
+		lineHeight: 16,
+		marginBottom: 4,
 	},
-	playBadge: {
-		alignSelf: 'flex-start',
-		backgroundColor: '#1E293B',
-		paddingHorizontal: 14,
-		paddingVertical: 6,
-		borderRadius: 20,
+	galleryGridDate: {
+		fontSize: 10,
+		color: '#64748B',
+		fontWeight: '500',
 	},
-	playBadgeText: { fontSize: 12, fontWeight: '700', color: '#38BDF8' },
+	galleryHint: {
+		textAlign: 'center',
+		fontSize: 11,
+		color: '#475569',
+		marginTop: 8,
+		fontStyle: 'italic',
+	},
+	// --- BOTTOM BAR & MISC ---
 	permanentDisclaimer: {
 		backgroundColor: '#020617',
 		paddingHorizontal: 15,
@@ -938,11 +1061,13 @@ const styles = StyleSheet.create({
 		top: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight + 10,
 		left: 20,
 		zIndex: 10,
-		backgroundColor: 'rgba(255,255,255,0.1)',
+		backgroundColor: 'rgba(255,255,255,0.15)',
 		paddingHorizontal: 18,
 		paddingVertical: 10,
 		borderRadius: 30,
+		borderWidth: 1,
+		borderColor: 'rgba(255,255,255,0.2)',
 	},
-	closeVideoText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+	closeVideoText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 	videoStyle: { flex: 1, width: '100%' },
 });
