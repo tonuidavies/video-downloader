@@ -1,1353 +1,1182 @@
+// App.js
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+
 import {
-    View,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    Image,
-    ActivityIndicator,
-    StyleSheet,
-    Platform,
-    KeyboardAvoidingView,
-    StatusBar,
-    Modal,
-    Dimensions,
-    Animated,
-    FlatList,
-    Alert,
+	View,
+	Text,
+	TextInput,
+	TouchableOpacity,
+	Image,
+	ActivityIndicator,
+	StyleSheet,
+	Platform,
+	KeyboardAvoidingView,
+	StatusBar,
+	Modal,
+	Dimensions,
+	Animated,
+	FlatList,
+	ToastAndroid,
+	Alert,
 } from 'react-native';
+
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+
 import axios from 'axios';
+
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+
 import { useVideoPlayer, VideoView } from 'expo-video';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
-    RewardedAd,
-    RewardedAdEventType,
-    AdEventType,
-    TestIds,
+	InterstitialAd,
+	AdEventType,
+	TestIds,
+	BannerAd,
+	BannerAdSize,
 } from 'react-native-google-mobile-ads';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ───────────────────────────────────────
+
 const { width } = Dimensions.get('window');
+
+const STORAGE_KEY = '@downloaded_videos_v4';
+
 const GALLERY_COLUMNS = 3;
 const GALLERY_SPACING = 4;
+
 const GALLERY_ITEM_SIZE =
-    (width - 32 - GALLERY_SPACING * (GALLERY_COLUMNS - 1)) / GALLERY_COLUMNS;
+	(width - 32 - GALLERY_SPACING * (GALLERY_COLUMNS - 1)) / GALLERY_COLUMNS;
 
-const STORAGE_KEY = '@downloaded_videos_v2';
+// ───────────────────────────────────────
+// ADS
+// ───────────────────────────────────────
 
-const adUnitId = __DEV__
-    ? TestIds.REWARDED
-    : Platform.OS === 'ios'
-        ? 'ca-app-pub-5117316644857484/4813266605'
-        : 'ca-app-pub-5117316644857484/7842966656';
+const interstitialAdUnitId = __DEV__
+	? TestIds.INTERSTITIAL
+	: Platform.OS === 'ios'
+		? 'ca-app-pub-5117316644857484/4813266605'
+		: 'ca-app-pub-5117316644857484/7842966656';
 
-const launchAd = RewardedAd.createForAdRequest(adUnitId, {
-    requestNonPersonalizedAdsOnly: true,
-});
-const downloadAd = RewardedAd.createForAdRequest(adUnitId, {
-    requestNonPersonalizedAdsOnly: true,
-});
-const playerAd = RewardedAd.createForAdRequest(adUnitId, {
-    requestNonPersonalizedAdsOnly: true,
-});
+const bannerAdUnitId = __DEV__
+	? TestIds.BANNER
+	: Platform.OS === 'ios'
+		? 'ca-app-pub-5117316644857484/1234567890'
+		: 'ca-app-pub-5117316644857484/0987654321';
 
-// ─── Video Player Component ─────────────────────────────────────────────────
+const interstitialAd = InterstitialAd.createForAdRequest(interstitialAdUnitId);
+
+// ───────────────────────────────────────
+// PLAYER SCREEN
+// ───────────────────────────────────────
+
 function VideoPlayerScreen({ video, onClose, onShare }) {
-    const player = useVideoPlayer(video.localUri, (p) => {
-        p.play();
-    });
+	const player = useVideoPlayer(video.localUri, (player) => {
+		player.play();
+	});
 
-    return (
-        <View style={styles.playerContainer}>
-            <View style={styles.playerTopBar}>
-                <TouchableOpacity onPress={onClose} style={styles.playerCloseBtn}>
-                    <Text style={styles.playerCloseText}>✕ Close</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={() => onShare(video)}
-                    style={styles.playerShareBtn}>
-                    <Text style={styles.playerShareText}>Share ↗</Text>
-                </TouchableOpacity>
-            </View>
+	return (
+		<View style={styles.playerContainer}>
+			<View style={styles.playerTopBar}>
+				<TouchableOpacity
+					onPress={onClose}
+					style={styles.playerCloseBtn}>
+					<Text style={styles.playerCloseText}>✕ Close</Text>
+				</TouchableOpacity>
 
-            <VideoView
-                player={player}
-                style={styles.player}
-                allowsFullscreen
-                allowsPictureInPicture
-                nativeControls
-            />
+				<TouchableOpacity
+					onPress={() => onShare(video)}
+					style={styles.playerShareBtn}>
+					<Text style={styles.playerShareText}>Share ↗</Text>
+				</TouchableOpacity>
+			</View>
 
-            <View style={styles.playerInfoBar}>
-                <Text style={styles.playerInfoTitle} numberOfLines={2}>
-                    {video.title}
-                </Text>
-                {video.date && (
-                    <Text style={styles.playerInfoDate}>Saved: {video.date}</Text>
-                )}
-            </View>
-        </View>
-    );
+			<VideoView
+				player={player}
+				style={styles.player}
+				fullscreenOptions={{
+					enable: true,
+				}}
+				allowsPictureInPicture
+				nativeControls
+			/>
+
+			<View style={styles.playerInfoBar}>
+				<Text
+					style={styles.playerInfoTitle}
+					numberOfLines={2}>
+					{video.title}
+				</Text>
+
+				<Text style={styles.playerInfoDate}>Saved: {video.date}</Text>
+			</View>
+		</View>
+	);
 }
 
-// ─── Main App ────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────
+// MAIN APP
+// ───────────────────────────────────────
+
 export default function App() {
-    const [appReady, setAppReady] = useState(false);
-    const [activeTab, setActiveTab] = useState('HOME');
-    const [url, setUrl] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [downloading, setDownloading] = useState(false);
-    const [downloadProgress, setDownloadProgress] = useState(0);
+	const [activeTab, setActiveTab] = useState('HOME');
+	const [url, setUrl] = useState('');
+	const [loading, setLoading] = useState(false);
+	const [downloading, setDownloading] = useState(false);
+	const [downloadProgress, setDownloadProgress] = useState(0);
+	const [videoData, setVideoData] = useState(null);
+	const [downloadedVideos, setDownloadedVideos] = useState([]);
+	const [playingVideo, setPlayingVideo] = useState(null);
+	const [hasPermission, setHasPermission] = useState(false);
 
-    const [videoData, setVideoData] = useState(null);
-    const [downloadedVideos, setDownloadedVideos] = useState([]);
-    const [playingVideo, setPlayingVideo] = useState(null);
+	const currentVideoDataRef = useRef(null);
 
-    const [hasPermission, setHasPermission] = useState(false);
-    const [mediaPermission, setMediaPermission] = useState(null);
+	const fadeAnim = useRef(new Animated.Value(0)).current;
+	const pulseAnim = useRef(new Animated.Value(1)).current;
 
-    const [alertConfig, setAlertConfig] = useState({
-        visible: false,
-        title: '',
-        message: '',
-    });
+	const [interstitialAdLoaded, setInterstitialAdLoaded] = useState(false);
 
-    const [downloadAdLoaded, setDownloadAdLoaded] = useState(false);
-    const [playerAdLoaded, setPlayerAdLoaded] = useState(false);
+	// ───────────────────────────────────────
 
-    const currentVideoDataRef = useRef(null);
-    const pendingVideoRef = useRef(null);
+	const showToast = (message) => {
+		if (Platform.OS === 'android') {
+			ToastAndroid.show(message, ToastAndroid.SHORT);
+		} else {
+			Alert.alert('Notice', message);
+		}
+	};
 
-    const pulseAnim = useRef(new Animated.Value(1)).current;
-    const fadeAnim = useRef(new Animated.Value(0)).current;
+	// ───────────────────────────────────────
 
-    // ── Helpers ──
-    const showAlert = useCallback((title, message) => {
-        setAlertConfig({ visible: true, title, message });
-    }, []);
+	const persistVideos = useCallback(async (videos) => {
+		try {
+			await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
+		} catch (e) {
+			console.log(e);
+		}
+	}, []);
 
-    // ── Animations ──
-    useEffect(() => {
-        if (appReady) {
-            Animated.timing(fadeAnim, {
-                toValue: 1,
-                duration: 600,
-                useNativeDriver: true,
-            }).start();
-        }
-    }, [appReady]);
+	// ───────────────────────────────────────
 
-    useEffect(() => {
-        if (loading) {
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(pulseAnim, {
-                        toValue: 0.95,
-                        duration: 500,
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(pulseAnim, {
-                        toValue: 1,
-                        duration: 500,
-                        useNativeDriver: true,
-                    }),
-                ])
-            ).start();
-        } else {
-            pulseAnim.setValue(1);
-        }
-    }, [loading]);
+	const loadDownloads = useCallback(async () => {
+		try {
+			const saved = await AsyncStorage.getItem(STORAGE_KEY);
+			if (!saved) return;
+			const parsed = JSON.parse(saved);
+			setDownloadedVideos(parsed);
+		} catch (e) {
+			console.log(e);
+		}
+	}, []);
 
-    // ── Permissions ──
-    const requestMediaPermissions = useCallback(async () => {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        setMediaPermission(status === 'granted');
-        return status === 'granted';
-    }, []);
+	// ───────────────────────────────────────
 
-    // ── Persistence ──
-    const loadDownloads = useCallback(async () => {
-        try {
-            const saved = await AsyncStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                const verified = [];
-                for (const item of parsed) {
-                    if (item.localUri) {
-                        const info = await FileSystem.getInfoAsync(item.localUri);
-                        if (info.exists) {
-                            verified.push(item);
-                        }
-                    }
-                }
-                setDownloadedVideos(verified);
-                if (verified.length !== parsed.length) {
-                    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(verified));
-                }
-            }
-        } catch (e) {
-            console.error('Failed to load downloads:', e);
-        }
-    }, []);
+	const requestMediaPermissions = useCallback(async () => {
+		const { status } = await MediaLibrary.requestPermissionsAsync();
+		return status === 'granted';
+	}, []);
 
-    const persistVideos = useCallback(async (videos) => {
-        try {
-            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
-        } catch (e) {
-            console.error('Failed to persist:', e);
-        }
-    }, []);
+	// ───────────────────────────────────────
 
-    // ── Ad Setup ──
-    useEffect(() => {
-        loadDownloads();
-        requestMediaPermissions();
+	useEffect(() => {
+		loadDownloads();
 
-        const unsubLaunchLoaded = launchAd.addAdEventListener(
-            RewardedAdEventType.LOADED,
-            () => launchAd.show(),
-        );
-        const unsubLaunchReward = launchAd.addAdEventListener(
-            RewardedAdEventType.EARNED_REWARD,
-            () => setAppReady(true),
-        );
-        const unsubLaunchError = launchAd.addAdEventListener(
-            AdEventType.ERROR,
-            () => setAppReady(true),
-        );
-        const unsubLaunchClosed = launchAd.addAdEventListener(
-            AdEventType.CLOSED,
-            () => setAppReady(true),
-        );
-        launchAd.load();
+		Animated.timing(fadeAnim, {
+			toValue: 1,
+			duration: 500,
+			useNativeDriver: true,
+		}).start();
 
-        const unsubDownLoaded = downloadAd.addAdEventListener(
-            RewardedAdEventType.LOADED,
-            () => setDownloadAdLoaded(true),
-        );
-        const unsubDownReward = downloadAd.addAdEventListener(
-            RewardedAdEventType.EARNED_REWARD,
-            () => executeDownload(currentVideoDataRef.current),
-        );
-        const unsubDownError = downloadAd.addAdEventListener(
-            AdEventType.ERROR,
-            () => setDownloadAdLoaded(false),
-        );
-        const unsubDownClosed = downloadAd.addAdEventListener(
-            AdEventType.CLOSED,
-            () => {
-                setDownloadAdLoaded(false);
-                downloadAd.load();
-            },
-        );
-        downloadAd.load();
+		// ─── INTERSTITIAL AD SETUP ───
+		const unsubAdLoaded = interstitialAd.addAdEventListener(
+			AdEventType.LOADED,
+			() => setInterstitialAdLoaded(true),
+		);
 
-        const unsubPlayerLoaded = playerAd.addAdEventListener(
-            RewardedAdEventType.LOADED,
-            () => setPlayerAdLoaded(true),
-        );
-        const unsubPlayerReward = playerAd.addAdEventListener(
-            RewardedAdEventType.EARNED_REWARD,
-            () => {
-                if (pendingVideoRef.current) {
-                    setPlayingVideo(pendingVideoRef.current);
-                    pendingVideoRef.current = null;
-                }
-            },
-        );
-        const unsubPlayerError = playerAd.addAdEventListener(
-            AdEventType.ERROR,
-            () => setPlayerAdLoaded(false),
-        );
-        const unsubPlayerClosed = playerAd.addAdEventListener(
-            AdEventType.CLOSED,
-            () => {
-                setPlayerAdLoaded(false);
-                playerAd.load();
-            },
-        );
-        playerAd.load();
+		const unsubAdClosed = interstitialAd.addAdEventListener(
+			AdEventType.CLOSED,
+			() => {
+				setInterstitialAdLoaded(false);
+				interstitialAd.load(); // Load the next ad
 
-        return () => {
-            unsubLaunchLoaded();
-            unsubLaunchReward();
-            unsubLaunchError();
-            unsubLaunchClosed();
-            unsubDownLoaded();
-            unsubDownReward();
-            unsubDownError();
-            unsubDownClosed();
-            unsubPlayerLoaded();
-            unsubPlayerReward();
-            unsubPlayerError();
-            unsubPlayerClosed();
-        };
-    }, []);
+				// Proceed to download after ad closes
+				if (currentVideoDataRef.current) {
+					executeDownload(currentVideoDataRef.current);
+				}
+			},
+		);
 
-    // ── Analyze URL ──
-    const handleAnalyze = async () => {
-        if (!url) return showAlert('Link Required', 'Please paste a video link.');
-        if (
-            url.toLowerCase().includes('youtube.com') ||
-            url.toLowerCase().includes('youtu.be')
-        ) {
-            return showAlert('Not Supported', 'YouTube downloads are not permitted.');
-        }
+		interstitialAd.load();
 
-        setLoading(true);
-        setVideoData(null);
-        setHasPermission(false);
-        currentVideoDataRef.current = null;
+		return () => {
+			unsubAdLoaded();
+			unsubAdClosed();
+		};
+	}, []);
 
-        try {
-            const apiUrl =
-                'https://download.usesabu.com/api/v1/downloader/extract';
-            const response = await axios.post(apiUrl, { url }, { timeout: 25000 });
-            setVideoData(response.data);
-            currentVideoDataRef.current = response.data;
-            setUrl('');
-        } catch (error) {
-            showAlert('Error', 'Could not extract video. Please check the link.');
-        } finally {
-            setLoading(false);
-        }
-    };
+	// ───────────────────────────────────────
 
-    // ── Download ──
-    const handleDownloadPress = async () => {
-        if (!currentVideoDataRef.current) return;
-        if (!hasPermission) {
-            return showAlert(
-                'Permission Required',
-                'Please confirm content permissions first.',
-            );
-        }
+	useEffect(() => {
+		if (loading) {
+			Animated.loop(
+				Animated.sequence([
+					Animated.timing(pulseAnim, {
+						toValue: 0.96,
+						duration: 500,
+						useNativeDriver: true,
+					}),
+					Animated.timing(pulseAnim, {
+						toValue: 1,
+						duration: 500,
+						useNativeDriver: true,
+					}),
+				]),
+			).start();
+		} else {
+			pulseAnim.setValue(1);
+		}
+	}, [loading]);
 
-        const granted = await requestMediaPermissions();
-        if (!granted) {
-            return showAlert(
-                'Permission Denied',
-                'Media library access is required to save videos.',
-            );
-        }
+	// ───────────────────────────────────────
 
-        if (downloadAdLoaded) {
-            downloadAd.show();
-        } else {
-            executeDownload(currentVideoDataRef.current);
-        }
-    };
+	const handleAnalyze = async () => {
+		if (!url) {
+			showToast('Paste a video link');
+			return;
+		}
 
-    const executeDownload = async (targetData) => {
-        if (!targetData || !targetData.downloadUrl) return;
-        if (downloading) return;
+		if (url.includes('youtube.com') || url.includes('youtu.be')) {
+			showToast('YouTube not supported');
+			return;
+		}
 
-        setDownloading(true);
-        setDownloadProgress(0);
+		setLoading(true);
+		setVideoData(null);
+		setHasPermission(false);
 
-        const fileName = `SaveItAll_${Date.now()}.mp4`;
-        const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
+		try {
+			const response = await axios.post(
+				'https://download.usesabu.com/api/v1/downloader/extract',
+				{ url },
+			);
 
-        try {
-            // Step 1: Download to temp cache
-            const downloadResumable = FileSystem.createDownloadResumable(
-                targetData.downloadUrl,
-                tempUri,
-                {},
-                (progress) => {
-                    const pct =
-                        progress.totalBytesWritten /
-                        progress.totalBytesExpectedToWrite;
-                    setDownloadProgress(pct);
-                },
-            );
+			setVideoData(response.data);
+			currentVideoDataRef.current = response.data;
+			setUrl('');
+		} catch (e) {
+			showToast('Could not fetch video');
+		} finally {
+			setLoading(false);
+		}
+	};
 
-            const result = await downloadResumable.downloadAsync();
-            if (!result || !result.uri) {
-                throw new Error('Download returned no file.');
-            }
+	// ───────────────────────────────────────
 
-            // Step 2: Save to device gallery via MediaLibrary
-            const asset = await MediaLibrary.createAssetAsync(result.uri);
+	const handleDownloadPress = async () => {
+		if (!currentVideoDataRef.current) return;
 
-            // Step 3: Move to named album
-            const album = await MediaLibrary.getAlbumAsync('SaveIt All');
-            if (album) {
-                await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-            } else {
-                await MediaLibrary.createAlbumAsync('SaveIt All', asset, false);
-            }
+		if (!hasPermission) {
+			showToast('Confirm permission first');
+			return;
+		}
 
-            // Step 4: Get permanent local URI
-            const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
-            const permanentUri = assetInfo.localUri || asset.uri;
+		const granted = await requestMediaPermissions();
 
-            // Step 5: Save metadata with functional state update
-            const newEntry = {
-                id: Date.now().toString(),
-                title: targetData.title || 'Untitled Video',
-                thumbnail: targetData.thumbnail || null,
-                localUri: permanentUri,
-                assetId: asset.id,
-                date: new Date().toLocaleDateString(),
-                duration: assetInfo.duration || null,
-            };
+		if (!granted) {
+			showToast('Gallery permission denied');
+			return;
+		}
 
-            setDownloadedVideos((prev) => {
-                const updated = [newEntry, ...prev];
-                persistVideos(updated);
-                return updated;
-            });
+		// Show interstitial ad before starting the download process
+		if (interstitialAdLoaded) {
+			interstitialAd.show();
+		} else {
+			// Fallback if ad failed to load, proceed directly
+			executeDownload(currentVideoDataRef.current);
+		}
+	};
 
-            // Step 6: Clean up temp file
-            await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(
-                () => {},
-            );
+	// ───────────────────────────────────────
 
-            showAlert(
-                'Success! 🎉',
-                'Video saved to your gallery in the "SaveIt All" album.',
-            );
-            setVideoData(null);
-            currentVideoDataRef.current = null;
-        } catch (err) {
-            console.error('Download error:', err);
-            showAlert('Download Failed', err.message || 'Something went wrong.');
-            await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(
-                () => {},
-            );
-        } finally {
-            setDownloading(false);
-            setDownloadProgress(0);
-        }
-    };
+	const executeDownload = async (targetData) => {
+		if (!targetData || !targetData.downloadUrl) return;
+		if (downloading) return;
 
-    // ── Share ──
-    const handleShare = async (item) => {
-        try {
-            const isAvailable = await Sharing.isAvailableAsync();
-            if (!isAvailable) {
-                return showAlert(
-                    'Not Available',
-                    'Sharing is not available on this device.',
-                );
-            }
+		setDownloading(true);
+		setDownloadProgress(0);
 
-            let uriToShare = item.localUri;
+		const fileName = `SaveItAll_${Date.now()}.mp4`;
+		const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
 
-            const info = await FileSystem.getInfoAsync(uriToShare);
-            if (!info.exists) {
-                if (item.assetId) {
-                    const asset = await MediaLibrary.getAssetInfoAsync(item.assetId);
-                    if (asset && asset.localUri) {
-                        uriToShare = asset.localUri;
-                    } else {
-                        return showAlert('Error', 'Video file not found on device.');
-                    }
-                } else {
-                    return showAlert('Error', 'Video file not found on device.');
-                }
-            }
+		try {
+			const downloadResumable = FileSystem.createDownloadResumable(
+				targetData.downloadUrl,
+				tempUri,
+				{},
+				(progress) => {
+					const pct =
+						progress.totalBytesWritten / progress.totalBytesExpectedToWrite;
+					setDownloadProgress(pct);
+				},
+			);
 
-            await Sharing.shareAsync(uriToShare, {
-                mimeType: 'video/mp4',
-                dialogTitle: 'Share Video',
-                UTI: 'public.movie',
-            });
-        } catch (err) {
-            console.error('Share error:', err);
-            showAlert('Share Failed', err.message || 'Could not share the video.');
-        }
-    };
+			const result = await downloadResumable.downloadAsync();
 
-    // ── Play ──
-    const handlePlayPress = (item) => {
-        if (playerAdLoaded) {
-            pendingVideoRef.current = item;
-            playerAd.show();
-        } else {
-            setPlayingVideo(item);
-        }
-    };
+			if (!result || !result.uri) {
+				throw new Error('Download failed');
+			}
 
-    const handleClosePlayer = () => {
-        setPlayingVideo(null);
-    };
+			// SAVE TO GALLERY
+			const asset = await MediaLibrary.createAssetAsync(result.uri);
+			let album = await MediaLibrary.getAlbumAsync('SaveIt All');
 
-    // ── Delete ──
-    const handleDeleteVideo = (item) => {
-        Alert.alert(
-            'Remove Video',
-            'Remove from library? (The file will remain in your gallery.)',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Remove',
-                    style: 'destructive',
-                    onPress: () => {
-                        setDownloadedVideos((prev) => {
-                            const updated = prev.filter((v) => v.id !== item.id);
-                            persistVideos(updated);
-                            return updated;
-                        });
-                    },
-                },
-            ],
-        );
-    };
+			if (!album) {
+				album = await MediaLibrary.createAlbumAsync('SaveIt All', asset, false);
+			} else {
+				await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+			}
 
-    // ── Gallery Item ──
-    const renderGalleryItem = useCallback(
-        ({ item }) => (
-            <TouchableOpacity
-                style={styles.galleryItem}
-                onPress={() => handlePlayPress(item)}
-                onLongPress={() => handleDeleteVideo(item)}
-                activeOpacity={0.8}>
-                {item.thumbnail ? (
-                    <Image
-                        source={{ uri: item.thumbnail }}
-                        style={styles.galleryThumb}
-                    />
-                ) : (
-                    <View
-                        style={[styles.galleryThumb, styles.galleryThumbPlaceholder]}>
-                        <Text style={styles.galleryPlaceholderIcon}>🎬</Text>
-                    </View>
-                )}
-                <View style={styles.galleryPlayOverlay}>
-                    <View style={styles.galleryPlayCircle}>
-                        <Text style={styles.galleryPlayIcon}>▶</Text>
-                    </View>
-                </View>
-                {item.duration != null && (
-                    <View style={styles.durationBadge}>
-                        <Text style={styles.durationText}>
-                            {Math.floor(item.duration / 60)}:
-                            {String(Math.floor(item.duration % 60)).padStart(2, '0')}
-                        </Text>
-                    </View>
-                )}
-                <View style={styles.galleryItemFooter}>
-                    <Text style={styles.galleryItemTitle} numberOfLines={1}>
-                        {item.title}
-                    </Text>
-                    <TouchableOpacity
-                        style={styles.shareIconBtn}
-                        onPress={() => handleShare(item)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Text style={styles.shareIconText}>↗</Text>
-                    </TouchableOpacity>
-                </View>
-            </TouchableOpacity>
-        ),
-        [],
-    );
+			// Use original file URI for playback
+			const playableUri = result.uri;
 
-    const galleryKeyExtractor = useCallback((item) => item.id, []);
+			const newEntry = {
+				id: Date.now().toString(),
+				title: targetData.title || 'Untitled Video',
+				thumbnail: targetData.thumbnail || null,
+				localUri: playableUri,
+				assetId: asset.id,
+				date: new Date().toLocaleDateString(),
+			};
 
-    // ─── SPLASH ──────────────────────────────────────────────────────────────
-    if (!appReady) {
-        return (
-            <View style={styles.splashContainer}>
-                <StatusBar barStyle='light-content' backgroundColor='#020617' />
-                <Animated.View style={[styles.splashLogoBox, { opacity: fadeAnim }]}>
-                    <Image
-                        source={require('./assets/icon.png')}
-                        style={styles.splashLogo}
-                        resizeMode='contain'
-                    />
-                    <Text style={styles.splashTitle}>SaveIt All</Text>
-                    <Text style={styles.splashSubtitle}>Universal Utility Tool</Text>
-                </Animated.View>
-                <ActivityIndicator
-                    size='large'
-                    color='#38BDF8'
-                    style={{ marginTop: 30 }}
-                />
-            </View>
-        );
-    }
+			setDownloadedVideos((prev) => {
+				const updated = [newEntry, ...prev];
+				persistVideos(updated);
+				return updated;
+			});
 
-    // ─── MAIN RENDER ─────────────────────────────────────────────────────────
-    return (
-        <SafeAreaProvider>
-            <SafeAreaView style={styles.safe}>
-                <StatusBar barStyle='light-content' backgroundColor='#020617' />
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={{ flex: 1 }}>
-                    {/* ── HOME TAB ── */}
-                    {activeTab === 'HOME' && (
-                        <Animated.ScrollView
-                            contentContainerStyle={styles.homeScroll}
-                            keyboardShouldPersistTaps='handled'
-                            showsVerticalScrollIndicator={false}
-                            style={{ opacity: fadeAnim }}>
-                            <View style={styles.logoContainer}>
-                                <Image
-                                    source={require('./assets/icon.png')}
-                                    style={styles.topLogo}
-                                    resizeMode='contain'
-                                />
-                            </View>
+			showToast('Saved to gallery');
+			setVideoData(null);
+			currentVideoDataRef.current = null;
+		} catch (e) {
+			console.log(e);
+			showToast('Download failed');
+		} finally {
+			setDownloading(false);
+			setDownloadProgress(0);
+		}
+	};
 
-                            <View style={styles.card}>
-                                <Text style={styles.cardTitle}>SaveIt All</Text>
-                                <Text style={styles.cardSubtitle}>
-                                    Save videos from anywhere
-                                </Text>
+	// ───────────────────────────────────────
 
-                                <View style={styles.inputRow}>
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder='Paste video link here...'
-                                        placeholderTextColor='#64748B'
-                                        value={url}
-                                        onChangeText={setUrl}
-                                        autoCapitalize='none'
-                                        autoCorrect={false}
-                                    />
-                                </View>
+	const handleShare = async (item) => {
+		try {
+			const available = await Sharing.isAvailableAsync();
+			if (!available) {
+				showToast('Sharing unavailable');
+				return;
+			}
 
-                                <Animated.View
-                                    style={{
-                                        width: '100%',
-                                        transform: [{ scale: pulseAnim }],
-                                    }}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.searchBtn,
-                                            loading && styles.searchBtnDisabled,
-                                        ]}
-                                        onPress={handleAnalyze}
-                                        disabled={loading}
-                                        activeOpacity={0.85}>
-                                        {loading ? (
-                                            <ActivityIndicator color='#fff' />
-                                        ) : (
-                                            <Text style={styles.searchBtnText}>
-                                                ✨ Search Video
-                                            </Text>
-                                        )}
-                                    </TouchableOpacity>
-                                </Animated.View>
+			await Sharing.shareAsync(item.localUri, {
+				mimeType: 'video/mp4',
+				dialogTitle: 'Share Video',
+				UTI: 'public.movie',
+			});
+		} catch (e) {
+			console.log(e);
+			showToast('Could not share video');
+		}
+	};
 
-                                <View style={styles.platforms}>
-                                    <Text style={styles.platformsLabel}>
-                                        🌐 Supported Platforms
-                                    </Text>
-                                    <View style={styles.chipRow}>
-                                        {[
-                                            'Instagram',
-                                            'Facebook',
-                                            'Twitter/X',
-                                            'TikTok',
-                                            'Reddit',
-                                            'Twitch',
-                                            'Vimeo',
-                                            'Dailymotion',
-                                        ].map((p) => (
-                                            <View key={p} style={styles.chip}>
-                                                <Text style={styles.chipText}>{p}</Text>
-                                            </View>
-                                        ))}
-                                    </View>
-                                    <Text style={styles.chipExtra}>
-                                        + many more public video links
-                                    </Text>
-                                </View>
-                            </View>
+	// ───────────────────────────────────────
 
-                            {/* ── Preview Card ── */}
-                            {videoData && (
-                                <View style={styles.previewCard}>
-                                    <Image
-                                        source={{ uri: videoData.thumbnail }}
-                                        style={styles.previewImg}
-                                    />
-                                    <View style={styles.previewBody}>
-                                        <Text style={styles.previewTitle} numberOfLines={2}>
-                                            {videoData.title}
-                                        </Text>
+	const handlePlayPress = (item) => {
+		setPlayingVideo(item);
+	};
 
-                                        <TouchableOpacity
-                                            style={styles.checkRow}
-                                            onPress={() => setHasPermission(!hasPermission)}
-                                            activeOpacity={0.8}>
-                                            <View
-                                                style={[
-                                                    styles.checkBox,
-                                                    hasPermission && styles.checkBoxActive,
-                                                ]}>
-                                                {hasPermission && (
-                                                    <Text style={styles.checkMark}>✓</Text>
-                                                )}
-                                            </View>
-                                            <Text style={styles.checkLabel}>
-                                                I confirm I have the owner's permission to
-                                                download this content.
-                                            </Text>
-                                        </TouchableOpacity>
+	// ───────────────────────────────────────
 
-                                        {downloading && (
-                                            <View style={styles.progressContainer}>
-                                                <View style={styles.progressBar}>
-                                                    <View
-                                                        style={[
-                                                            styles.progressFill,
-                                                            {
-                                                                width: `${Math.round(downloadProgress * 100)}%`,
-                                                            },
-                                                        ]}
-                                                    />
-                                                </View>
-                                                <Text style={styles.progressText}>
-                                                    {Math.round(downloadProgress * 100)}%
-                                                </Text>
-                                            </View>
-                                        )}
+	const handleDelete = (item) => {
+		Alert.alert(
+			'Remove Video',
+			'Delete this video permanently from your device gallery?',
+			[
+				{
+					text: 'Cancel',
+					style: 'cancel',
+				},
+				{
+					text: 'Delete',
+					style: 'destructive',
+					onPress: async () => {
+						try {
+							// 1. Delete from Device Gallery
+							if (item.assetId) {
+								await MediaLibrary.deleteAssetsAsync([item.assetId]);
+							}
 
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.dlBtn,
-                                                (!hasPermission || downloading) &&
-                                                    styles.dlBtnDisabled,
-                                            ]}
-                                            onPress={handleDownloadPress}
-                                            disabled={!hasPermission || downloading}
-                                            activeOpacity={0.8}>
-                                            <Text style={styles.dlBtnText}>
-                                                {downloading
-                                                    ? '⏳ Saving...'
-                                                    : '⬇️ Save to Gallery'}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                            )}
-                        </Animated.ScrollView>
-                    )}
+							// 2. Clear cached local file if applicable
+							if (item.localUri) {
+								await FileSystem.deleteAsync(item.localUri, {
+									idempotent: true,
+								});
+							}
 
-                    {/* ── GALLERY TAB ── */}
-                    {activeTab === 'FOLDER' && (
-                        <View style={styles.galleryContainer}>
-                            <View style={styles.galleryHeader}>
-                                <Text style={styles.galleryHeaderTitle}>My Gallery</Text>
-                                <View style={styles.countBadge}>
-                                    <Text style={styles.countText}>
-                                        {downloadedVideos.length}
-                                    </Text>
-                                </View>
-                            </View>
+							// 3. Remove from app state
+							setDownloadedVideos((prev) => {
+								const updated = prev.filter((v) => v.id !== item.id);
+								persistVideos(updated);
+								return updated;
+							});
 
-                            {downloadedVideos.length === 0 ? (
-                                <View style={styles.emptyState}>
-                                    <View style={styles.emptyCircle}>
-                                        <Text style={styles.emptyEmoji}>🎬</Text>
-                                    </View>
-                                    <Text style={styles.emptyTitle}>No videos yet</Text>
-                                    <Text style={styles.emptySubtitle}>
-                                        Download videos and they'll appear here
-                                    </Text>
-                                </View>
-                            ) : (
-                                <FlatList
-                                    data={downloadedVideos}
-                                    renderItem={renderGalleryItem}
-                                    keyExtractor={galleryKeyExtractor}
-                                    numColumns={GALLERY_COLUMNS}
-                                    columnWrapperStyle={styles.galleryRow}
-                                    contentContainerStyle={styles.galleryList}
-                                    showsVerticalScrollIndicator={false}
-                                    ListFooterComponent={
-                                        <Text style={styles.galleryHint}>
-                                            Long press to remove from library
-                                        </Text>
-                                    }
-                                />
-                            )}
-                        </View>
-                    )}
-                </KeyboardAvoidingView>
+							showToast('Video deleted');
+						} catch (error) {
+							console.log(error);
+							showToast('Failed to delete file from gallery');
+						}
+					},
+				},
+			],
+		);
+	};
 
-                {/* ── Disclaimer ── */}
-                <View style={styles.disclaimer}>
-                    <Text style={styles.disclaimerText}>
-                        <Text style={{ fontWeight: '700' }}>Disclaimer:</Text> SaveIt
-                        All is an independent utility tool. Users are responsible for
-                        ensuring they have the right to download content.
-                    </Text>
-                </View>
+	// ───────────────────────────────────────
 
-                {/* ── Bottom Tabs ── */}
-                <View style={styles.tabBar}>
-                    <TouchableOpacity
-                        style={styles.tab}
-                        onPress={() => setActiveTab('HOME')}
-                        activeOpacity={0.7}>
-                        <View
-                            style={[
-                                styles.tabIconWrap,
-                                activeTab === 'HOME' && styles.tabIconWrapActive,
-                            ]}>
-                            <Text
-                                style={[
-                                    styles.tabEmoji,
-                                    activeTab === 'HOME' && styles.tabEmojiActive,
-                                ]}>
-                                🔍
-                            </Text>
-                        </View>
-                        <Text
-                            style={[
-                                styles.tabLabel,
-                                activeTab === 'HOME' && styles.tabLabelActive,
-                            ]}>
-                            Search
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.tab}
-                        onPress={() => setActiveTab('FOLDER')}
-                        activeOpacity={0.7}>
-                        <View
-                            style={[
-                                styles.tabIconWrap,
-                                activeTab === 'FOLDER' && styles.tabIconWrapActive,
-                            ]}>
-                            <Text
-                                style={[
-                                    styles.tabEmoji,
-                                    activeTab === 'FOLDER' && styles.tabEmojiActive,
-                                ]}>
-                                🖼️
-                            </Text>
-                        </View>
-                        <Text
-                            style={[
-                                styles.tabLabel,
-                                activeTab === 'FOLDER' && styles.tabLabelActive,
-                            ]}>
-                            Gallery
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+	const renderGalleryItem = ({ item }) => (
+		<TouchableOpacity
+			style={styles.galleryItem}
+			onPress={() => handlePlayPress(item)}
+			onLongPress={() => handleDelete(item)}
+			activeOpacity={0.85}>
+			<Image
+				source={{ uri: item.thumbnail }}
+				style={styles.galleryThumb}
+			/>
 
-                {/* ── Custom Alert Modal ── */}
-                <Modal
-                    visible={alertConfig.visible}
-                    transparent
-                    animationType='fade'>
-                    <View style={styles.alertOverlay}>
-                        <View style={styles.alertBox}>
-                            <Text style={styles.alertTitle}>{alertConfig.title}</Text>
-                            <Text style={styles.alertMsg}>{alertConfig.message}</Text>
-                            <TouchableOpacity
-                                style={styles.alertBtn}
-                                onPress={() =>
-                                    setAlertConfig({ ...alertConfig, visible: false })
-                                }>
-                                <Text style={styles.alertBtnText}>Got it</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </Modal>
+			<View style={styles.galleryPlayOverlay}>
+				<View style={styles.galleryPlayCircle}>
+					<Text style={styles.galleryPlayIcon}>▶</Text>
+				</View>
+			</View>
 
-                {/* ── Video Player Modal ── */}
-                <Modal
-                    visible={!!playingVideo}
-                    animationType='slide'
-                    transparent={false}
-                    onRequestClose={handleClosePlayer}>
-                    {playingVideo && (
-                        <VideoPlayerScreen
-                            video={playingVideo}
-                            onClose={handleClosePlayer}
-                            onShare={handleShare}
-                        />
-                    )}
-                </Modal>
-            </SafeAreaView>
-        </SafeAreaProvider>
-    );
+			<View style={styles.galleryFooter}>
+				<Text
+					style={styles.galleryTitle}
+					numberOfLines={1}>
+					{item.title}
+				</Text>
+
+				<TouchableOpacity onPress={() => handleShare(item)}>
+					<Text style={styles.galleryShare}>↗</Text>
+				</TouchableOpacity>
+			</View>
+		</TouchableOpacity>
+	);
+
+	// ───────────────────────────────────────
+
+	return (
+		<SafeAreaProvider>
+			<SafeAreaView style={styles.container}>
+				<StatusBar
+					barStyle='light-content'
+					backgroundColor='#020617'
+				/>
+
+				<KeyboardAvoidingView
+					behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+					style={{ flex: 1 }}>
+					{/* TOP BANNER AD – Appears on both screens */}
+					<View style={styles.bannerContainerTop}>
+						<BannerAd
+							unitId={bannerAdUnitId}
+							size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+							requestOptions={{ requestNonPersonalizedAdsOnly: true }}
+						/>
+					</View>
+
+					{/* HOME TAB */}
+					{activeTab === 'HOME' && (
+						<Animated.ScrollView
+							contentContainerStyle={styles.scrollContent}
+							style={{ opacity: fadeAnim }}
+							showsVerticalScrollIndicator={false}>
+							<View style={styles.logoWrap}>
+								<Image
+									source={require('./assets/icon.png')}
+									style={styles.topLogo}
+								/>
+							</View>
+
+							<View style={styles.card}>
+								<Text style={styles.appName}>SaveIt All</Text>
+								<Text style={styles.subtitle}>Save videos from anywhere</Text>
+
+								<TextInput
+									style={styles.input}
+									placeholder='Paste video link here...'
+									placeholderTextColor='#64748B'
+									value={url}
+									onChangeText={setUrl}
+									autoCapitalize='none'
+								/>
+
+								<Animated.View
+									style={{
+										width: '100%',
+										transform: [{ scale: pulseAnim }],
+									}}>
+									<TouchableOpacity
+										style={[
+											styles.searchBtn,
+											loading && styles.searchBtnDisabled,
+										]}
+										onPress={handleAnalyze}
+										disabled={loading}>
+										{loading ? (
+											<ActivityIndicator color='#fff' />
+										) : (
+											<Text style={styles.searchBtnText}>✨ Search Video</Text>
+										)}
+									</TouchableOpacity>
+								</Animated.View>
+
+								<View style={styles.platformWrap}>
+									<Text style={styles.platformTitle}>
+										🌐 Supported Platforms
+									</Text>
+									<View style={styles.chips}>
+										{[
+											'Instagram',
+											'Facebook',
+											'Twitter/X',
+											'TikTok',
+											'Reddit',
+											'Twitch',
+											'Vimeo',
+											'Dailymotion',
+										].map((item) => (
+											<View
+												key={item}
+												style={styles.chip}>
+												<Text style={styles.chipText}>{item}</Text>
+											</View>
+										))}
+									</View>
+									<Text style={styles.extraText}>
+										+ many more public video links
+									</Text>
+								</View>
+							</View>
+
+							{/* PREVIEW */}
+							{videoData && (
+								<View style={styles.previewCard}>
+									<Image
+										source={{ uri: videoData.thumbnail }}
+										style={styles.previewImage}
+									/>
+									<View style={styles.previewContent}>
+										<Text
+											style={styles.previewTitle}
+											numberOfLines={2}>
+											{videoData.title}
+										</Text>
+
+										<TouchableOpacity
+											style={styles.permissionRow}
+											onPress={() => setHasPermission(!hasPermission)}>
+											<View
+												style={[
+													styles.checkbox,
+													hasPermission && styles.checkboxActive,
+												]}>
+												{hasPermission && (
+													<Text style={styles.checkmark}>✓</Text>
+												)}
+											</View>
+											<Text style={styles.permissionText}>
+												I confirm I have the owner's permission to download this
+												content.
+											</Text>
+										</TouchableOpacity>
+
+										{downloading && (
+											<View style={styles.progressWrap}>
+												<View style={styles.progressBar}>
+													<View
+														style={[
+															styles.progressFill,
+															{
+																width: `${Math.round(downloadProgress * 100)}%`,
+															},
+														]}
+													/>
+												</View>
+												<Text style={styles.progressText}>
+													{Math.round(downloadProgress * 100)}%
+												</Text>
+											</View>
+										)}
+
+										<TouchableOpacity
+											style={[
+												styles.downloadBtn,
+												(!hasPermission || downloading) &&
+													styles.downloadBtnDisabled,
+											]}
+											onPress={handleDownloadPress}
+											disabled={!hasPermission || downloading}>
+											<Text style={styles.downloadBtnText}>
+												{downloading ? '⏳ Saving...' : '⬇️ Save to Gallery'}
+											</Text>
+										</TouchableOpacity>
+									</View>
+								</View>
+							)}
+						</Animated.ScrollView>
+					)}
+
+					{/* GALLERY TAB */}
+					{activeTab === 'FOLDER' && (
+						<View style={styles.galleryContainer}>
+							<View style={styles.galleryHeader}>
+								<Text style={styles.galleryHeaderTitle}>My Gallery</Text>
+								<View style={styles.countBadge}>
+									<Text style={styles.countText}>
+										{downloadedVideos.length}
+									</Text>
+								</View>
+							</View>
+
+							{downloadedVideos.length === 0 ? (
+								<View style={styles.emptyState}>
+									<Text style={styles.emptyEmoji}>🎬</Text>
+									<Text style={styles.emptyTitle}>No videos yet</Text>
+									<Text style={styles.emptySubtitle}>
+										Downloaded videos will appear here
+									</Text>
+								</View>
+							) : (
+								<FlatList
+									data={downloadedVideos}
+									renderItem={renderGalleryItem}
+									keyExtractor={(item) => item.id}
+									numColumns={GALLERY_COLUMNS}
+									columnWrapperStyle={styles.galleryRow}
+									contentContainerStyle={styles.galleryList}
+								/>
+							)}
+						</View>
+					)}
+
+					{/* BOTTOM BANNER AD – Creatively styled above the bottom navigation */}
+					<View style={styles.bannerContainerBottom}>
+						<BannerAd
+							unitId={bannerAdUnitId}
+							size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+							requestOptions={{ requestNonPersonalizedAdsOnly: true }}
+						/>
+					</View>
+				</KeyboardAvoidingView>
+
+				{/* TAB BAR */}
+				<View style={styles.bottomBar}>
+					<TouchableOpacity
+						style={styles.tab}
+						onPress={() => setActiveTab('HOME')}>
+						<Text
+							style={[
+								styles.tabIcon,
+								activeTab === 'HOME' && styles.tabIconActive,
+							]}>
+							🔍
+						</Text>
+						<Text
+							style={[
+								styles.tabLabel,
+								activeTab === 'HOME' && styles.tabLabelActive,
+							]}>
+							Search
+						</Text>
+					</TouchableOpacity>
+
+					<TouchableOpacity
+						style={styles.tab}
+						onPress={() => setActiveTab('FOLDER')}>
+						<Text
+							style={[
+								styles.tabIcon,
+								activeTab === 'FOLDER' && styles.tabIconActive,
+							]}>
+							🖼️
+						</Text>
+						<Text
+							style={[
+								styles.tabLabel,
+								activeTab === 'FOLDER' && styles.tabLabelActive,
+							]}>
+							Gallery
+						</Text>
+					</TouchableOpacity>
+				</View>
+
+				{/* PLAYER */}
+				<Modal
+					visible={!!playingVideo}
+					animationType='slide'>
+					{playingVideo && (
+						<VideoPlayerScreen
+							video={playingVideo}
+							onClose={() => setPlayingVideo(null)}
+							onShare={handleShare}
+						/>
+					)}
+				</Modal>
+			</SafeAreaView>
+		</SafeAreaProvider>
+	);
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────
+// STYLES
+// ───────────────────────────────────────
+
 const styles = StyleSheet.create({
-    // Splash
-    splashContainer: {
-        flex: 1,
-        backgroundColor: '#020617',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    splashLogoBox: { alignItems: 'center' },
-    splashLogo: { width: 120, height: 120, marginBottom: 20 },
-    splashTitle: {
-        fontSize: 44,
-        fontWeight: '800',
-        color: '#FFF',
-        letterSpacing: -1,
-        marginBottom: 8,
-    },
-    splashSubtitle: {
-        fontSize: 15,
-        color: '#38BDF8',
-        fontWeight: '600',
-        letterSpacing: 0.5,
-    },
+	container: {
+		flex: 1,
+		backgroundColor: '#020617',
+	},
 
-    // Layout
-    safe: { flex: 1, backgroundColor: '#020617' },
-    homeScroll: {
-        flexGrow: 1,
-        paddingHorizontal: 16,
-        paddingTop: 10,
-        paddingBottom: 20,
-    },
-    logoContainer: {
-        alignItems: 'center',
-        marginBottom: 16,
-        marginTop: Platform.OS === 'ios' ? 0 : 16,
-    },
-    topLogo: { width: 64, height: 64 },
+	bannerContainerTop: {
+		alignItems: 'center',
+		marginTop: Platform.OS === 'ios' ? 4 : 0,
+		backgroundColor: '#020617',
+		zIndex: 10,
+	},
 
-    // Card
-    card: {
-        backgroundColor: '#0F172A',
-        borderRadius: 28,
-        padding: 24,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#1E293B',
-        shadowColor: '#38BDF8',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 16,
-        elevation: 6,
-    },
-    cardTitle: {
-        fontSize: 28,
-        fontWeight: '800',
-        color: '#FFF',
-        letterSpacing: -0.5,
-        marginBottom: 4,
-    },
-    cardSubtitle: {
-        fontSize: 13,
-        color: '#94A3B8',
-        fontWeight: '500',
-        marginBottom: 24,
-    },
+	bannerContainerBottom: {
+		alignItems: 'center',
+		backgroundColor: '#0F172A',
+		paddingTop: 8,
+		borderTopWidth: 1,
+		borderColor: '#1E293B',
+	},
 
-    // Input
-    inputRow: { width: '100%', marginBottom: 16 },
-    input: {
-        backgroundColor: '#1E293B',
-        borderRadius: 18,
-        paddingHorizontal: 18,
-        paddingVertical: 14,
-        fontSize: 15,
-        color: '#FFF',
-        fontWeight: '500',
-        borderWidth: 1.5,
-        borderColor: '#334155',
-    },
+	scrollContent: {
+		padding: 16,
+		paddingBottom: 30,
+	},
 
-    // Search button
-    searchBtn: {
-        backgroundColor: '#38BDF8',
-        borderRadius: 22,
-        paddingVertical: 15,
-        width: '100%',
-        alignItems: 'center',
-        shadowColor: '#38BDF8',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.5,
-        shadowRadius: 16,
-        elevation: 8,
-        marginBottom: 20,
-    },
-    searchBtnDisabled: { backgroundColor: '#334155', shadowOpacity: 0 },
-    searchBtnText: { color: '#0F172A', fontSize: 16, fontWeight: '800' },
+	logoWrap: {
+		alignItems: 'center',
+		marginVertical: 16,
+	},
 
-    // Platforms
-    platforms: { width: '100%', alignItems: 'center' },
-    platformsLabel: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#94A3B8',
-        marginBottom: 10,
-    },
-    chipRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        gap: 8,
-        marginBottom: 8,
-    },
-    chip: {
-        backgroundColor: '#1E293B',
-        paddingHorizontal: 12,
-        paddingVertical: 5,
-        borderRadius: 20,
-        borderWidth: 0.5,
-        borderColor: '#334155',
-    },
-    chipText: { fontSize: 11, fontWeight: '600', color: '#CBD5E1' },
-    chipExtra: { fontSize: 10, color: '#64748B', fontWeight: '500' },
+	topLogo: {
+		width: 70,
+		height: 70,
+	},
 
-    // Preview
-    previewCard: {
-        backgroundColor: '#0F172A',
-        borderRadius: 24,
-        overflow: 'hidden',
-        marginTop: 20,
-        borderWidth: 1,
-        borderColor: '#1E293B',
-        shadowColor: '#10B981',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 16,
-        elevation: 6,
-    },
-    previewImg: { width: '100%', height: 200, resizeMode: 'cover' },
-    previewBody: { padding: 18 },
-    previewTitle: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#FFF',
-        marginBottom: 14,
-        lineHeight: 21,
-        textAlign: 'center',
-    },
+	card: {
+		backgroundColor: '#0F172A',
+		borderRadius: 28,
+		padding: 24,
+		borderWidth: 1,
+		borderColor: '#1E293B',
+	},
 
-    // Checkbox
-    checkRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#1E293B',
-        padding: 12,
-        borderRadius: 14,
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#334155',
-    },
-    checkBox: {
-        width: 22,
-        height: 22,
-        borderRadius: 6,
-        borderWidth: 2,
-        borderColor: '#64748B',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 10,
-    },
-    checkBoxActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
-    checkMark: { color: '#020617', fontSize: 14, fontWeight: '900' },
-    checkLabel: {
-        flex: 1,
-        fontSize: 11,
-        color: '#CBD5E1',
-        lineHeight: 16,
-        fontWeight: '500',
-    },
+	appName: {
+		fontSize: 30,
+		fontWeight: '800',
+		color: '#fff',
+		textAlign: 'center',
+	},
 
-    // Progress
-    progressContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 14,
-        gap: 10,
-    },
-    progressBar: {
-        flex: 1,
-        height: 8,
-        backgroundColor: '#1E293B',
-        borderRadius: 4,
-        overflow: 'hidden',
-    },
-    progressFill: {
-        height: '100%',
-        backgroundColor: '#10B981',
-        borderRadius: 4,
-    },
-    progressText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#10B981',
-        width: 40,
-        textAlign: 'right',
-    },
+	subtitle: {
+		fontSize: 13,
+		color: '#94A3B8',
+		textAlign: 'center',
+		marginBottom: 24,
+	},
 
-    // Download button
-    dlBtn: {
-        backgroundColor: '#10B981',
-        borderRadius: 18,
-        paddingVertical: 15,
-        alignItems: 'center',
-        shadowColor: '#10B981',
-        shadowOpacity: 0.4,
-        shadowOffset: { width: 0, height: 4 },
-        shadowRadius: 12,
-        elevation: 6,
-    },
-    dlBtnDisabled: { backgroundColor: '#334155', shadowOpacity: 0 },
-    dlBtnText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
+	input: {
+		backgroundColor: '#1E293B',
+		borderRadius: 18,
+		paddingHorizontal: 18,
+		paddingVertical: 15,
+		color: '#fff',
+		fontSize: 15,
+		borderWidth: 1,
+		borderColor: '#334155',
+		marginBottom: 18,
+	},
 
-    // Gallery
-    galleryContainer: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
-    galleryHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    galleryHeaderTitle: {
-        fontSize: 26,
-        fontWeight: '800',
-        color: '#FFF',
-        letterSpacing: -0.5,
-    },
-    countBadge: {
-        backgroundColor: '#38BDF8',
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    countText: { fontSize: 13, color: '#020617', fontWeight: '800' },
-    galleryList: { paddingBottom: 20 },
-    galleryRow: { gap: GALLERY_SPACING, marginBottom: GALLERY_SPACING },
-    galleryItem: {
-        width: GALLERY_ITEM_SIZE,
-        backgroundColor: '#0F172A',
-        borderRadius: 14,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: '#1E293B',
-    },
-    galleryThumb: {
-        width: '100%',
-        height: GALLERY_ITEM_SIZE,
-        resizeMode: 'cover',
-    },
-    galleryThumbPlaceholder: {
-        backgroundColor: '#1E293B',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    galleryPlaceholderIcon: { fontSize: 28 },
-    galleryPlayOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: GALLERY_ITEM_SIZE,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.2)',
-    },
-    galleryPlayCircle: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: 'rgba(56,189,248,0.85)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    galleryPlayIcon: { color: '#FFF', fontSize: 14, marginLeft: 2 },
-    durationBadge: {
-        position: 'absolute',
-        top: GALLERY_ITEM_SIZE - 24,
-        right: 6,
-        backgroundColor: 'rgba(0,0,0,0.7)',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-    },
-    durationText: { color: '#FFF', fontSize: 9, fontWeight: '700' },
-    galleryItemFooter: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 6,
-    },
-    galleryItemTitle: {
-        flex: 1,
-        fontSize: 10,
-        fontWeight: '600',
-        color: '#F8FAFC',
-        lineHeight: 14,
-    },
-    shareIconBtn: { padding: 4 },
-    shareIconText: { fontSize: 14, color: '#38BDF8', fontWeight: '700' },
-    galleryHint: {
-        textAlign: 'center',
-        fontSize: 10,
-        color: '#475569',
-        marginTop: 12,
-        fontStyle: 'italic',
-        paddingBottom: 10,
-    },
+	searchBtn: {
+		backgroundColor: '#38BDF8',
+		borderRadius: 20,
+		paddingVertical: 15,
+		alignItems: 'center',
+		marginBottom: 22,
+	},
 
-    // Empty
-    emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    emptyCircle: {
-        width: 90,
-        height: 90,
-        borderRadius: 45,
-        backgroundColor: '#0F172A',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 16,
-        borderWidth: 2,
-        borderColor: '#1E293B',
-    },
-    emptyEmoji: { fontSize: 40 },
-    emptyTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#F8FAFC',
-        marginBottom: 6,
-    },
-    emptySubtitle: {
-        color: '#64748B',
-        fontSize: 14,
-        textAlign: 'center',
-        paddingHorizontal: 40,
-    },
+	searchBtnDisabled: {
+		backgroundColor: '#334155',
+	},
 
-    // Disclaimer
-    disclaimer: {
-        backgroundColor: '#020617',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderTopWidth: 1,
-        borderTopColor: '#1E293B',
-    },
-    disclaimerText: {
-        fontSize: 9,
-        color: '#64748B',
-        textAlign: 'center',
-        lineHeight: 13,
-    },
+	searchBtnText: {
+		fontSize: 16,
+		fontWeight: '800',
+		color: '#020617',
+	},
 
-    // Tab bar
-    tabBar: {
-        flexDirection: 'row',
-        backgroundColor: '#0F172A',
-        paddingBottom: Platform.OS === 'android' ? 36 : 30,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: '#1E293B',
-    },
-    tab: { flex: 1, alignItems: 'center' },
-    tabIconWrap: { padding: 6, borderRadius: 24, marginBottom: 3 },
-    tabIconWrapActive: { backgroundColor: '#1E293B' },
-    tabEmoji: { fontSize: 22, opacity: 0.4 },
-    tabEmojiActive: { opacity: 1 },
-    tabLabel: { fontSize: 11, color: '#64748B', fontWeight: '600' },
-    tabLabelActive: { color: '#38BDF8', fontWeight: '800' },
+	platformWrap: {
+		alignItems: 'center',
+	},
 
-    // Alert
-    alertOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    alertBox: {
-        backgroundColor: '#1E293B',
-        width: '100%',
-        borderRadius: 22,
-        padding: 22,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#334155',
-    },
-    alertTitle: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: '#F8FAFC',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    alertMsg: {
-        fontSize: 14,
-        color: '#CBD5E1',
-        textAlign: 'center',
-        lineHeight: 20,
-        marginBottom: 20,
-    },
-    alertBtn: {
-        backgroundColor: '#38BDF8',
-        paddingVertical: 13,
-        paddingHorizontal: 28,
-        borderRadius: 18,
-        width: '100%',
-        alignItems: 'center',
-    },
-    alertBtnText: { color: '#020617', fontSize: 15, fontWeight: '800' },
+	platformTitle: {
+		fontSize: 12,
+		color: '#94A3B8',
+		marginBottom: 12,
+	},
 
-    // Player
-    playerContainer: { flex: 1, backgroundColor: '#000' },
-    playerTopBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 54 : (StatusBar.currentHeight || 24) + 12,
-        paddingHorizontal: 16,
-        paddingBottom: 10,
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 10,
-    },
-    playerCloseBtn: {
-        backgroundColor: 'rgba(255,255,255,0.15)',
-        paddingHorizontal: 16,
-        paddingVertical: 9,
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
-    },
-    playerCloseText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
-    playerShareBtn: {
-        backgroundColor: 'rgba(56,189,248,0.25)',
-        paddingHorizontal: 16,
-        paddingVertical: 9,
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(56,189,248,0.4)',
-    },
-    playerShareText: { color: '#38BDF8', fontWeight: '700', fontSize: 13 },
-    player: { flex: 1, width: '100%' },
-    playerInfoBar: {
-        backgroundColor: '#0F172A',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    },
-    playerInfoTitle: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#F8FAFC',
-        lineHeight: 20,
-    },
-    playerInfoDate: {
-        fontSize: 11,
-        color: '#64748B',
-        marginTop: 4,
-        fontWeight: '500',
-    },
+	chips: {
+		flexDirection: 'row',
+		flexWrap: 'wrap',
+		gap: 8,
+		justifyContent: 'center',
+	},
+
+	chip: {
+		backgroundColor: '#1E293B',
+		paddingHorizontal: 12,
+		paddingVertical: 5,
+		borderRadius: 20,
+	},
+
+	chipText: {
+		fontSize: 11,
+		color: '#CBD5E1',
+	},
+
+	extraText: {
+		fontSize: 10,
+		color: '#64748B',
+		marginTop: 10,
+	},
+
+	previewCard: {
+		backgroundColor: '#0F172A',
+		borderRadius: 24,
+		marginTop: 22,
+		overflow: 'hidden',
+	},
+
+	previewImage: {
+		width: '100%',
+		height: 210,
+	},
+
+	previewContent: {
+		padding: 18,
+	},
+
+	previewTitle: {
+		fontSize: 15,
+		fontWeight: '700',
+		color: '#fff',
+		textAlign: 'center',
+		marginBottom: 14,
+	},
+
+	permissionRow: {
+		flexDirection: 'row',
+		backgroundColor: '#1E293B',
+		padding: 12,
+		borderRadius: 14,
+		alignItems: 'center',
+		marginBottom: 16,
+	},
+
+	checkbox: {
+		width: 22,
+		height: 22,
+		borderRadius: 6,
+		borderWidth: 2,
+		borderColor: '#64748B',
+		marginRight: 10,
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+
+	checkboxActive: {
+		backgroundColor: '#38BDF8',
+		borderColor: '#38BDF8',
+	},
+
+	checkmark: {
+		fontWeight: '900',
+		color: '#020617',
+	},
+
+	permissionText: {
+		flex: 1,
+		fontSize: 11,
+		color: '#CBD5E1',
+	},
+
+	progressWrap: {
+		marginBottom: 14,
+	},
+
+	progressBar: {
+		height: 8,
+		backgroundColor: '#1E293B',
+		borderRadius: 4,
+		overflow: 'hidden',
+	},
+
+	progressFill: {
+		height: '100%',
+		backgroundColor: '#10B981',
+	},
+
+	progressText: {
+		marginTop: 6,
+		fontSize: 11,
+		color: '#10B981',
+		fontWeight: '700',
+		textAlign: 'right',
+	},
+
+	downloadBtn: {
+		backgroundColor: '#10B981',
+		borderRadius: 18,
+		paddingVertical: 15,
+		alignItems: 'center',
+	},
+
+	downloadBtnDisabled: {
+		backgroundColor: '#334155',
+	},
+
+	downloadBtnText: {
+		fontSize: 15,
+		fontWeight: '800',
+		color: '#fff',
+	},
+
+	galleryContainer: {
+		flex: 1,
+		padding: 16,
+	},
+
+	galleryHeader: {
+		flexDirection: 'row',
+		justifyContent: 'space-between',
+		marginBottom: 18,
+	},
+
+	galleryHeaderTitle: {
+		fontSize: 28,
+		fontWeight: '800',
+		color: '#fff',
+	},
+
+	countBadge: {
+		width: 34,
+		height: 34,
+		borderRadius: 17,
+		backgroundColor: '#38BDF8',
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+
+	countText: {
+		fontWeight: '800',
+		color: '#020617',
+	},
+
+	galleryList: {
+		paddingBottom: 20,
+	},
+
+	galleryRow: {
+		gap: GALLERY_SPACING,
+		marginBottom: GALLERY_SPACING,
+	},
+
+	galleryItem: {
+		width: GALLERY_ITEM_SIZE,
+		backgroundColor: '#0F172A',
+		borderRadius: 14,
+		overflow: 'hidden',
+	},
+
+	galleryThumb: {
+		width: '100%',
+		height: GALLERY_ITEM_SIZE,
+	},
+
+	galleryPlayOverlay: {
+		position: 'absolute',
+		top: 0,
+		left: 0,
+		right: 0,
+		height: GALLERY_ITEM_SIZE,
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+
+	galleryPlayCircle: {
+		width: 38,
+		height: 38,
+		borderRadius: 19,
+		backgroundColor: 'rgba(56,189,248,0.85)',
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+
+	galleryPlayIcon: {
+		color: '#fff',
+	},
+
+	galleryFooter: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingHorizontal: 8,
+		paddingVertical: 6,
+	},
+
+	galleryTitle: {
+		flex: 1,
+		fontSize: 10,
+		color: '#fff',
+	},
+
+	galleryShare: {
+		fontSize: 14,
+		color: '#38BDF8',
+	},
+
+	emptyState: {
+		flex: 1,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+
+	emptyEmoji: {
+		fontSize: 54,
+		marginBottom: 10,
+	},
+
+	emptyTitle: {
+		fontSize: 18,
+		fontWeight: '700',
+		color: '#fff',
+	},
+
+	emptySubtitle: {
+		fontSize: 13,
+		color: '#64748B',
+		marginTop: 4,
+	},
+
+	bottomBar: {
+		flexDirection: 'row',
+		backgroundColor: '#0F172A',
+		paddingTop: 12,
+		paddingBottom: 32,
+	},
+
+	tab: {
+		flex: 1,
+		alignItems: 'center',
+	},
+
+	tabIcon: {
+		fontSize: 22,
+		opacity: 0.4,
+	},
+
+	tabIconActive: {
+		opacity: 1,
+	},
+
+	tabLabel: {
+		fontSize: 11,
+		color: '#64748B',
+		marginTop: 4,
+	},
+
+	tabLabelActive: {
+		color: '#38BDF8',
+		fontWeight: '800',
+	},
+
+	playerContainer: {
+		flex: 1,
+		backgroundColor: '#000',
+	},
+
+	playerTopBar: {
+		position: 'absolute',
+		top: 55,
+		left: 0,
+		right: 0,
+		zIndex: 10,
+		flexDirection: 'row',
+		justifyContent: 'space-between',
+		paddingHorizontal: 16,
+	},
+
+	playerCloseBtn: {
+		backgroundColor: 'rgba(255,255,255,0.15)',
+		paddingHorizontal: 16,
+		paddingVertical: 9,
+		borderRadius: 22,
+	},
+
+	playerCloseText: {
+		color: '#fff',
+		fontWeight: '700',
+	},
+
+	playerShareBtn: {
+		backgroundColor: 'rgba(56,189,248,0.2)',
+		paddingHorizontal: 16,
+		paddingVertical: 9,
+		borderRadius: 22,
+	},
+
+	playerShareText: {
+		color: '#38BDF8',
+		fontWeight: '700',
+	},
+
+	player: {
+		flex: 1,
+		width: '100%',
+	},
+
+	playerInfoBar: {
+		backgroundColor: '#0F172A',
+		padding: 16,
+		paddingBottom: 30,
+	},
+
+	playerInfoTitle: {
+		color: '#fff',
+		fontWeight: '700',
+	},
+
+	playerInfoDate: {
+		fontSize: 11,
+		color: '#64748B',
+		marginTop: 4,
+	},
 });
