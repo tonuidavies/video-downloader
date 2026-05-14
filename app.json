@@ -36,7 +36,16 @@
           "androidAppId": "ca-app-pub-5117316644857484~5868982969",
           "iosAppId": "ca-app-pub-5117316644857484~5868982969"
         }
-      ]
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      "expo-video"
     ],
     "extra": {
       "eas": {
