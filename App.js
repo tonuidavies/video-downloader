@@ -60,14 +60,14 @@ const GALLERY_ITEM_SIZE =
 const interstitialAdUnitId = __DEV__
 	? TestIds.INTERSTITIAL
 	: Platform.OS === 'ios'
-		? 'ca-app-pub-5117316644857484/4813266605'
-		: 'ca-app-pub-5117316644857484/7842966656';
+		? 'ca-app-pub-5117316644857484/2596809566ga'
+		: 'ca-app-pub-5117316644857484/8021075376';
 
 const bannerAdUnitId = __DEV__
 	? TestIds.BANNER
 	: Platform.OS === 'ios'
-		? 'ca-app-pub-5117316644857484/1234567890'
-		: 'ca-app-pub-5117316644857484/0987654321';
+		? 'ca-app-pub-5117316644857484/6017408731'
+		: 'ca-app-pub-5117316644857484/3104003611';
 
 const interstitialAd = InterstitialAd.createForAdRequest(interstitialAdUnitId);
 
