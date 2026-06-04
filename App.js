@@ -19,8 +19,8 @@ import {
 } from 'react-native';
 
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar'; 
-import * as Clipboard from 'expo-clipboard'; 
+import { StatusBar } from 'expo-status-bar'; // <-- FIXED FOR ANDROID 15 EDGE-TO-EDGE
+import * as Clipboard from 'expo-clipboard'; // <-- AUTO-PASTE FEATURE
 
 import axios from 'axios';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -253,7 +253,7 @@ export default function App() {
 		try {
 			// UPDATE THIS TO YOUR LOCAL IP FOR TESTING!
 			const response = await axios.post(
-				'https://download.usesabu.com/api/v1/downloader/extract',
+				'https://host:port/api/v1/downloader/extract',
 				{ url },
 			);
 			setVideoData(response.data);
@@ -303,14 +303,14 @@ export default function App() {
 			dUrl.includes('.webp') ||
 			oUrl.includes('/p/')
 		) {
-			ext = 'jpg';
+			ext = 'jpg'; 
 		}
 
 		const fileName = `SaveItAll_${Date.now()}.${ext}`;
 		const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
 
 		try {
-			const localStreamUrl = `https://download.usesabu.com/api/v1/downloader/stream?url=${encodeURIComponent(targetData.originalUrl)}`;
+			const localStreamUrl = `https://host:port/api/v1/downloader/stream?url=${encodeURIComponent(targetData.originalUrl)}`;
 
 			const downloadResumable = FileSystem.createDownloadResumable(
 				localStreamUrl,
