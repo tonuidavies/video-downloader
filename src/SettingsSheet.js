@@ -10,17 +10,11 @@ import {
 	StyleSheet,
 	Modal,
 	ScrollView,
-	Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-	COLORS,
-	DISCLAIMER,
-	PRIVACY_POLICY_URL,
-	DEFAULT_HOST,
-	DEFAULT_PORT,
-} from './constants';
+import { PrivacyLink } from './PrivacyPolicy';
+import { COLORS, DISCLAIMER, DEFAULT_HOST, DEFAULT_PORT } from './constants';
 
 export default function SettingsSheet({ visible, host, port, onClose, onSave }) {
 	const [draftHost, setDraftHost] = useState(host);
@@ -94,9 +88,7 @@ export default function SettingsSheet({ visible, host, port, onClose, onSave }) 
 					<View style={styles.divider} />
 					<Text style={styles.aboutTitle}>About & Legal</Text>
 					<Text style={styles.about}>{DISCLAIMER}</Text>
-					<TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
-						<Text style={styles.link}>Privacy Policy</Text>
-					</TouchableOpacity>
+					<PrivacyLink style={styles.link} />
 				</ScrollView>
 			</View>
 		</Modal>

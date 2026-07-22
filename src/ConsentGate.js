@@ -2,19 +2,14 @@
 // First-run consent / rights acknowledgment gate.
 // ==========================================
 import React from 'react';
-import {
-	View,
-	Text,
-	TouchableOpacity,
-	StyleSheet,
-	Linking,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Logo } from './ui';
-import { COLORS, APP_NAME, DISCLAIMER, PRIVACY_POLICY_URL } from './constants';
+import { PrivacyLink } from './PrivacyPolicy';
+import { COLORS, APP_NAME, DISCLAIMER } from './constants';
 
 export default function ConsentGate({ logo, onAccept }) {
 	return (
@@ -34,9 +29,7 @@ export default function ConsentGate({ logo, onAccept }) {
 					you own or have permission to save.
 				</Text>
 
-				<TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
-					<Text style={styles.link}>Privacy Policy</Text>
-				</TouchableOpacity>
+				<PrivacyLink style={styles.link} />
 
 				<TouchableOpacity
 					activeOpacity={0.85}

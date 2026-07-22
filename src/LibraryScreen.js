@@ -21,13 +21,11 @@ import {
 	LIB_AD_EVERY_ROWS,
 	BANNER_AD_UNIT_ID,
 } from './constants';
-import { humanSize } from './utils';
 import { Thumb } from './ui';
 
 export default function LibraryScreen({ items, onOpenSettings, onOpen, onShare, onRemove }) {
 	const [filter, setFilter] = useState('ALL');
 
-	const totalBytes = items.reduce((s, i) => s + (i.bytes || 0), 0);
 	const videoCount = items.filter((i) => i.type !== 'image').length;
 	const imageCount = items.filter((i) => i.type === 'image').length;
 
@@ -108,28 +106,10 @@ export default function LibraryScreen({ items, onOpenSettings, onOpen, onShare, 
 	};
 
 	const header = (
-		<View>
-			<View style={styles.summary}>
-				<View style={styles.summaryItem}>
-					<Text style={styles.summaryNum}>{items.length}</Text>
-					<Text style={styles.summaryLabel}>Items</Text>
-				</View>
-				<View style={styles.summaryDivider} />
-				<View style={styles.summaryItem}>
-					<Text style={styles.summaryNum}>{humanSize(totalBytes) || '0 MB'}</Text>
-					<Text style={styles.summaryLabel}>Total size</Text>
-				</View>
-				<View style={styles.summaryDivider} />
-				<View style={styles.summaryItem}>
-					<Text style={styles.summaryNum}>{videoCount}</Text>
-					<Text style={styles.summaryLabel}>Videos</Text>
-				</View>
-			</View>
-			<View style={styles.chipRow}>
-				<Chip id='ALL' label={`All (${items.length})`} />
-				<Chip id='VIDEO' label={`Videos (${videoCount})`} />
-				<Chip id='IMAGE' label={`Images (${imageCount})`} />
-			</View>
+		<View style={styles.chipRow}>
+			<Chip id='ALL' label={`All (${items.length})`} />
+			<Chip id='VIDEO' label={`Videos (${videoCount})`} />
+			<Chip id='IMAGE' label={`Images (${imageCount})`} />
 		</View>
 	);
 
